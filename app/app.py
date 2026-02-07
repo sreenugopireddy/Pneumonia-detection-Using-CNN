@@ -4,12 +4,11 @@ sys.path.append(os.path.abspath("."))
 import streamlit as st
 import torch
 import numpy as np
-import cv2
 from PIL import Image
 from torchvision import transforms
 
 from models.mobilenet_model import build_model
-from rag.explain import get_explanation
+from rag.explain import build_prediction_explanation, rag_answer
 
 from pytorch_grad_cam import GradCAM
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
@@ -18,66 +17,60 @@ from pytorch_grad_cam.utils.image import show_cam_on_image
 
 # ---------------- CONFIG ----------------
 
-st.set_page_config(page_title="Pneumonia AI Detector", layout="centered")
-st.title("🫁 Pneumonia X-Ray AI Analyzer")
+st.set_page_config(layout="wide")
+st.title("🫁 Pneumonia AI Assistant — CNN + PDF-RAG")
 
 device = torch.device("cpu")
 class_names = ["NORMAL", "PNEUMONIA"]
 
 
-# ---------------- LOAD MODEL ----------------
+# ---------------- MODEL LOAD ----------------
 
 @st.cache_resource
 def load_model():
-    model = build_model()
-    model.load_state_dict(
+    m = build_model()
+    m.load_state_dict(
         torch.load("models/mobilenet_pneumonia.pth", map_location=device)
     )
-    model.eval()
-
-    # GradCAM needs gradients enabled
-    for p in model.parameters():
+    m.eval()
+    for p in m.parameters():
         p.requires_grad = True
-
-    return model
-
+    return m
 
 model = load_model()
-
-# correct target conv layer for MobileNetV2
-target_layers = [model.features[-1][0]]
-cam = GradCAM(model=model, target_layers=target_layers)
+cam = GradCAM(model=model, target_layers=[model.features[-1][0]])
 
 
-# ---------------- TRANSFORMS ----------------
+# ---------------- TRANSFORM ----------------
 
 transform = transforms.Compose([
-    transforms.Resize((224, 224)),
+    transforms.Resize((224,224)),
     transforms.ToTensor(),
-    transforms.Normalize([0.5]*3, [0.5]*3)
+    transforms.Normalize([0.5]*3,[0.5]*3)
 ])
 
 
-# ---------------- UI ----------------
+# ===================== UI =====================
+
+left, center, right = st.columns(3)
 
 uploaded = st.file_uploader(
-    "Upload Chest X-ray Image",
-    type=["jpg", "jpeg", "png"]
+    "Upload Chest X-ray",
+    type=["jpg","png","jpeg"]
 )
+
+
+# ===================== ANALYSIS =====================
 
 if uploaded:
 
     pil_img = Image.open(uploaded).convert("RGB")
-    st.image(pil_img, caption="Uploaded Image", use_column_width=True)
-
     x = transform(pil_img).unsqueeze(0)
 
-    # ---------- PREDICTION ----------
     with torch.no_grad():
         out = model(x)
         probs = torch.softmax(out, dim=1)[0]
 
-    # ✅ safer threshold to reduce false positives
     p_pneu = probs[1].item()
 
     if p_pneu > 0.80:
@@ -85,34 +78,66 @@ if uploaded:
     elif p_pneu < 0.45:
         pred = 0
     else:
-        pred = 0   # treat uncertain as NORMAL to reduce false alarms
-
+        pred = 0
 
     label = class_names[pred]
     confidence = probs[pred].item()
 
-    st.subheader(f"Prediction: {label}")
-    st.write(f"Confidence: {confidence:.3f}")
+    # -------- LEFT --------
+    with left:
+        st.subheader("X-ray")
+        st.image(pil_img, use_column_width=True)
 
-    st.write("Class probabilities:")
-    st.write({
-        "NORMAL": float(probs[0]),
-        "PNEUMONIA": float(probs[1])
-    })
+    # -------- CENTER --------
+    with center:
+        targets = [ClassifierOutputTarget(pred)]
+        cam_map = cam(input_tensor=x, targets=targets)[0]
+        rgb = np.array(pil_img.resize((224,224))) / 255.0
+        overlay = show_cam_on_image(rgb, cam_map, use_rgb=True)
+
+        st.subheader("Model Attention")
+        st.image(overlay, use_column_width=True)
+
+    # -------- RIGHT --------
+    with right:
+        st.subheader("Prediction")
+        st.metric("Class", label)
+        st.metric("Confidence", f"{confidence:.3f}")
+        st.progress(float(confidence))
+
+        if confidence > 0.85:
+            st.success("High confidence")
+        elif confidence > 0.60:
+            st.warning("Moderate confidence")
+        else:
+            st.error("Low confidence")
+
+        st.write({
+            "NORMAL": float(probs[0]),
+            "PNEUMONIA": float(probs[1])
+        })
+
+    # -------- RAG EXPLANATION (CORRECT PLACE) --------
+
+    st.markdown("---")
+
+    explanation = build_prediction_explanation(label, confidence)
+    st.markdown(explanation)
 
 
-    # ---------- GRAD-CAM ----------
-    targets = [ClassifierOutputTarget(pred)]
-    grayscale_cam = cam(input_tensor=x, targets=targets)[0]
+# ===================== RAG CHATBOT =====================
 
-    rgb_img = np.array(pil_img.resize((224, 224))) / 255.0
-    cam_image = show_cam_on_image(rgb_img, grayscale_cam, use_rgb=True)
+st.sidebar.title("💬 PDF-RAG Medical Chatbot")
 
-    st.image(cam_image, caption="Model Attention (Grad-CAM)")
+if "chat" not in st.session_state:
+    st.session_state.chat = []
 
+q = st.sidebar.text_input("Ask medical question")
 
-    # ---------- RAG EXPLANATION ----------
-    explanation = get_explanation(label)
+if q:
+    ans = rag_answer(q)
+    st.session_state.chat.append((q, ans))
 
-    st.subheader("AI Medical Explanation")
-    st.write(explanation)
+for q,a in st.session_state.chat:
+    st.sidebar.write("**You:**", q)
+    st.sidebar.write("**Bot:**", a)

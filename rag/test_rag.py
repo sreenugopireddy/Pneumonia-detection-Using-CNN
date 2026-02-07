@@ -1,7 +1,10 @@
 import sys, os
 sys.path.append(os.path.dirname(__file__))
 
-from explain import get_explanation
+from explain import rag_answer
 
-print(get_explanation("PNEUMONIA"))
-print(get_explanation("NORMAL"))
+q = "What are the symptoms and treatment of pneumonia?"
+
+print("\nQUERY:\n", q)
+print("\nANSWER:\n")
+print(rag_answer(q))
