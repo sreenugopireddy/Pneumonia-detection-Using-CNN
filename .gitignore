@@ -1,0 +1,8 @@
+venv/
+data/
+rag/vector_db/
+__pycache__/
+*.pth
+*.faiss
+*.pkl
+gradcam_output.jpg

@@ -1,0 +1,15 @@
+Pneumonia is an infection that inflames the air sacs in one or both lungs. 
+In chest X-rays, pneumonia often appears as areas of increased opacity 
+or white patches indicating fluid or consolidation.
+
+Common radiographic signs include:
+- Lobar consolidation
+- Patchy infiltrates
+- Interstitial markings
+- Air bronchograms
+
+Bacterial pneumonia often shows focal consolidation.
+Viral pneumonia often shows diffuse interstitial patterns.
+
+Clinical symptoms include cough, fever, chest pain, and difficulty breathing.
+Early detection using chest radiographs is important for treatment planning.
